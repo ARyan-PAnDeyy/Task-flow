@@ -1,0 +1,649 @@
+openapi: 3.0.3
+info:
+  title: TaskFlow - Project & Task Management API
+  version: 1.0.0
+  description: |
+    RESTful API for managing projects, teams and tasks with role-based access control.
+
+    **Authentication:** call `POST /api/auth/login`, copy the `token`, click **Authorize** and paste it.
+
+    **Roles**
+    | Role | Capabilities |
+    |------|--------------|
+    | ADMIN | Everything, including user management and audit logs |
+    | PROJECT_MANAGER | Create projects; full control of projects they manage and their tasks |
+    | TEAM_MEMBER | View projects they belong to, update status of tasks assigned to them, comment, attach files |
+
+    **Response envelope:** success → `{ success: true, data, pagination? }`, error → `{ success: false, message, errors? }`
+servers:
+  - url: /api
+tags:
+  - name: Auth
+  - name: Users
+  - name: Projects
+  - name: Tasks
+  - name: Comments
+  - name: Attachments
+  - name: Dashboard
+  - name: Audit Logs
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
+    search:
+      name: search
+      in: query
+      schema: { type: string }
+    sort:
+      name: sort
+      in: query
+      description: '`field:asc` or `field:desc`'
+      schema: { type: string, example: 'createdAt:desc' }
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Insufficient role / permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found (or not visible to you)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        message: { type: string, example: Validation failed }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string, example: email }
+              message: { type: string, example: email must be a valid email }
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+    Role:
+      type: string
+      enum: [ADMIN, PROJECT_MANAGER, TEAM_MEMBER]
+    UserSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+    User:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            isActive: { type: boolean }
+            lastLoginAt: { type: string, format: date-time, nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    AuthResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+            token: { type: string }
+    ProjectStats:
+      type: object
+      properties:
+        total: { type: integer }
+        todo: { type: integer }
+        inProgress: { type: integer }
+        completed: { type: integer }
+        progress: { type: integer, description: Percentage of completed tasks }
+    Project:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [PLANNING, ACTIVE, ON_HOLD, COMPLETED] }
+        startDate: { type: string, format: date, nullable: true }
+        deadline: { type: string, format: date, nullable: true }
+        managerId: { type: integer, nullable: true }
+        manager: { $ref: '#/components/schemas/UserSummary' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/UserSummary' }
+        stats: { $ref: '#/components/schemas/ProjectStats' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProjectInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150, example: Website Redesign }
+        description: { type: string, example: Revamp the marketing site }
+        status: { type: string, enum: [PLANNING, ACTIVE, ON_HOLD, COMPLETED] }
+        startDate: { type: string, format: date, example: '2026-12-01' }
+        deadline: { type: string, format: date, example: '2027-01-31' }
+        managerId: { type: integer, description: 'Admin only; must be a PROJECT_MANAGER or ADMIN' }
+    Task:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [TODO, IN_PROGRESS, COMPLETED] }
+        priority: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        dueDate: { type: string, format: date, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        projectId: { type: integer }
+        assigneeId: { type: integer, nullable: true }
+        project:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+        assignee: { $ref: '#/components/schemas/UserSummary' }
+        commentCount: { type: integer }
+        attachmentCount: { type: integer }
+    TaskInput:
+      type: object
+      properties:
+        title: { type: string, example: Implement login page }
+        description: { type: string }
+        status: { type: string, enum: [TODO, IN_PROGRESS, COMPLETED] }
+        priority: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        dueDate: { type: string, format: date, example: '2026-12-15' }
+        assigneeId: { type: integer, nullable: true, description: Must be a project member }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        content: { type: string }
+        taskId: { type: integer }
+        author: { $ref: '#/components/schemas/UserSummary' }
+        createdAt: { type: string, format: date-time }
+    Attachment:
+      type: object
+      properties:
+        id: { type: integer }
+        originalName: { type: string }
+        mimeType: { type: string }
+        size: { type: integer }
+        taskId: { type: integer }
+        uploadedBy: { $ref: '#/components/schemas/UserSummary' }
+        createdAt: { type: string, format: date-time }
+    AuditLog:
+      type: object
+      properties:
+        id: { type: integer }
+        action: { type: string, example: UPDATE }
+        entityType: { type: string, example: Task }
+        entityId: { type: integer }
+        details: { type: object }
+        ipAddress: { type: string }
+        user: { $ref: '#/components/schemas/UserSummary' }
+        createdAt: { type: string, format: date-time }
+
+paths:
+  /health:
+    get:
+      tags: [Auth]
+      summary: Health check
+      security: []
+      responses:
+        '200': { description: OK }
+
+  # ---------------- Auth ----------------
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account (role TEAM_MEMBER)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, example: Jane Doe }
+                email: { type: string, example: jane@example.com }
+                password: { type: string, example: Secret@123, description: 'Min 8 chars, upper, lower and a number' }
+      responses:
+        '201':
+          description: Registered
+          content: { application/json: { schema: { $ref: '#/components/schemas/AuthResult' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: Email already registered }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: admin@taskflow.com }
+                password: { type: string, example: Admin@123 }
+      responses:
+        '200':
+          description: Logged in
+          content: { application/json: { schema: { $ref: '#/components/schemas/AuthResult' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user profile
+      responses:
+        '200': { description: Current user }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Auth]
+      summary: Update own profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        '200': { description: Updated }
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change own password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string }
+      responses:
+        '200': { description: Password changed }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ---------------- Users ----------------
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (ADMIN, PROJECT_MANAGER)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/sort'
+        - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
+        - { name: isActive, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Paginated users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/User' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Users]
+      summary: Create a user with any role (ADMIN)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string }
+                email: { type: string }
+                password: { type: string }
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '201': { description: Created }
+        '409': { description: Email exists }
+  /users/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Users]
+      summary: Get a user (ADMIN, PROJECT_MANAGER)
+      responses:
+        '200': { description: User }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Users]
+      summary: Update name / role / active flag (ADMIN)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                role: { $ref: '#/components/schemas/Role' }
+                isActive: { type: boolean }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Users]
+      summary: Deactivate a user (soft delete, ADMIN)
+      responses:
+        '200': { description: Deactivated }
+
+  # ---------------- Projects ----------------
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects visible to the current user
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/sort'
+        - { name: status, in: query, schema: { type: string, enum: [PLANNING, ACTIVE, ON_HOLD, COMPLETED] } }
+        - { name: managerId, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Paginated projects with task stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    post:
+      tags: [Projects]
+      summary: Create a project (ADMIN, PROJECT_MANAGER)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ProjectInput'
+                - type: object
+                  required: [name]
+                  properties:
+                    memberIds: { type: array, items: { type: integer }, example: [3, 4] }
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /projects/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Projects]
+      summary: Project details with members and stats
+      responses:
+        '200': { description: Project }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Projects]
+      summary: Update project (manager or ADMIN; only ADMIN may change managerId)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectInput' }
+      responses:
+        '200': { description: Updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Projects]
+      summary: Delete project and all its tasks (manager or ADMIN)
+      responses:
+        '200': { description: Deleted }
+  /projects/{id}/members:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      tags: [Projects]
+      summary: Add team members (manager or ADMIN)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userIds]
+              properties:
+                userIds: { type: array, items: { type: integer }, example: [5, 6] }
+      responses:
+        '200': { description: Updated project }
+  /projects/{id}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+      - { name: userId, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [Projects]
+      summary: Remove a team member (their tasks in the project become unassigned)
+      responses:
+        '200': { description: Updated project }
+
+  # ---------------- Tasks ----------------
+  /tasks:
+    get:
+      tags: [Tasks]
+      summary: Search / filter / paginate tasks across accessible projects
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/sort'
+        - { name: projectId, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [TODO, IN_PROGRESS, COMPLETED] } }
+        - { name: priority, in: query, schema: { type: string, enum: [LOW, MEDIUM, HIGH] } }
+        - { name: assigneeId, in: query, description: 'user id, `me` or `unassigned`', schema: { type: string } }
+        - { name: dueBefore, in: query, schema: { type: string, format: date } }
+        - { name: dueAfter, in: query, schema: { type: string, format: date } }
+        - { name: overdue, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Paginated tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: array, items: { $ref: '#/components/schemas/Task' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    post:
+      tags: [Tasks]
+      summary: Create a task (project manager or ADMIN)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/TaskInput'
+                - type: object
+                  required: [title, projectId]
+                  properties:
+                    projectId: { type: integer, example: 1 }
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /tasks/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Tasks]
+      summary: Task details
+      responses:
+        '200': { description: Task }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Tasks]
+      summary: Update task (manager/ADMIN any field; assignee status only)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskInput' }
+      responses:
+        '200': { description: Updated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Tasks]
+      summary: Delete task (manager or ADMIN)
+      responses:
+        '200': { description: Deleted }
+
+  # ---------------- Comments ----------------
+  /tasks/{id}/comments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Comments]
+      summary: List comments on a task
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Comment' } }
+    post:
+      tags: [Comments]
+      summary: Add a comment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, example: Looks good! }
+      responses:
+        '201': { description: Created }
+  /comments/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    delete:
+      tags: [Comments]
+      summary: Delete a comment (author, project manager or ADMIN)
+      responses:
+        '200': { description: Deleted }
+
+  # ---------------- Attachments ----------------
+  /tasks/{id}/attachments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Attachments]
+      summary: List attachments on a task
+      responses:
+        '200':
+          description: Attachments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
+    post:
+      tags: [Attachments]
+      summary: Upload a file (max 10MB; images, pdf, office docs, txt, csv, zip, json)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Uploaded }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /attachments/{id}/download:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Attachments]
+      summary: Download a file
+      responses:
+        '200': { description: File stream }
+  /attachments/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    delete:
+      tags: [Attachments]
+      summary: Delete an attachment (uploader, project manager or ADMIN)
+      responses:
+        '200': { description: Deleted }
+
+  # ---------------- Dashboard ----------------
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Aggregated statistics scoped to the user's projects
+      description: Summary counters, tasks by status / priority, project progress, upcoming deadlines, 14-day completed-vs-created trend and team performance.
+      responses:
+        '200': { description: Dashboard data }
+
+  # ---------------- Audit ----------------
+  /audit-logs:
+    get:
+      tags: [Audit Logs]
+      summary: Audit trail (ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - { name: action, in: query, schema: { type: string } }
+        - { name: entityType, in: query, schema: { type: string, enum: [User, Project, Task, System] } }
+        - { name: userId, in: query, schema: { type: integer } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: Paginated audit log
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AuditLog' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '403': { $ref: '#/components/responses/Forbidden' }

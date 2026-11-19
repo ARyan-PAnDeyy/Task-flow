@@ -1,0 +1,26 @@
+const ROLES = Object.freeze({
+  ADMIN: 'ADMIN',
+  PROJECT_MANAGER: 'PROJECT_MANAGER',
+  TEAM_MEMBER: 'TEAM_MEMBER',
+});
+
+const TASK_STATUS = Object.freeze({
+  TODO: 'TODO',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+});
+
+const TASK_PRIORITY = Object.freeze({
+  LOW: 'LOW',
+  MEDIUM: 'MEDIUM',
+  HIGH: 'HIGH',
+});
+
+const PROJECT_STATUS = Object.freeze({
+  PLANNING: 'PLANNING',
+  ACTIVE: 'ACTIVE',
+  ON_HOLD: 'ON_HOLD',
+  COMPLETED: 'COMPLETED',
+});
+
+module.exports = { ROLES, TASK_STATUS, TASK_PRIORITY, PROJECT_STATUS };

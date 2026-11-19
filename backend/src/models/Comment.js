@@ -1,0 +1,13 @@
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) =>
+  sequelize.define(
+    'Comment',
+    {
+      id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+      content: { type: DataTypes.TEXT, allowNull: false },
+      taskId: { type: DataTypes.INTEGER, allowNull: false },
+      userId: { type: DataTypes.INTEGER },
+    },
+    { tableName: 'comments', indexes: [{ fields: ['task_id'] }] }
+  );
